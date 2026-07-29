@@ -1,13 +1,14 @@
+import numpy as np
+import networkx as nx
+import matplotlib.pyplot as plt
+
 class BinomialOptionPricing:
 
     def __init__(self, 
                 s0 = None, K = None, 
                 r = None, T = None, 
                 sigma = None, N = None
-    ):
-        import numpy as np
-        self.np = np
-
+        ):
         self.s0 = s0
         self.K = K
         self.r = r
@@ -18,16 +19,16 @@ class BinomialOptionPricing:
 
         # derived formulas to be needed later
         self.dt = self.T / self.N
-        self.u = self.np.exp(self.sigma * self.np.sqrt(self.dt))
+        self.u = np.exp(self.sigma * np.sqrt(self.dt))
         self.d = 1 / self.u
-        self.p = (self.np.exp(self.r * self.dt) - self.d) / (self.u - self.d)
-        self.discount = self.np.exp(-self.r * self.dt)
+        self.p = (np.exp(self.r * self.dt) - self.d) / (self.u - self.d)
+        self.discount = np.exp(-self.r * self.dt)
 
     def option_prices(self, option_type='call'):
 
         # 1. Initialize trees with zeros
-        stock_tree = self.np.zeros((self.N+1 , self.N+1))
-        option_tree = self.np.zeros((self.N+1 , self.N+1))
+        stock_tree = np.zeros((self.N+1 , self.N+1))
+        option_tree = np.zeros((self.N+1 , self.N+1))
 
         # 2. Building stock price tree (Forward pass)
         for i in range(self.N+1):
@@ -54,9 +55,6 @@ class BinomialOptionPricing:
         """
         Visualizes the calculated trees using NetworkX and Matplotlib.
         """
-        import networkx as nx
-        import matplotlib.pyplot as plt
-        
         G = nx.DiGraph()
         pos = {}
         labels = {}
@@ -89,16 +87,16 @@ class BinomialOptionPricing:
         plt.margins(0.1)
         plt.show()
 
-r = 0.05      # risk-free rate
-T = 1         # Time to expiry
-N = 10        # time steps
-sigma = 0.3   # constant volatility
-s0 = 50       # initial stock price
-K = 52        # Strike price
-option_type = "Call"
+#r = 0.05      # risk-free rate
+#T = 1         # Time to expiry
+#N = 10        # time steps
+#sigma = 0.3   # constant volatility
+#s0 = 50       # initial stock price
+#K = 52        # Strike price
+#option_type = "Call"
 
-engine = BinomialOptionPricing(s0=s0, K=K, r=r, T=T, sigma=sigma, N=N)
-stock_tree, option_tree = engine.option_prices(option_type = option_type)
-print(f"Calculated European {option_type.capitalize()} Price: ${option_tree[0, 0]:.4f}")
+#engine = BinomialOptionPricing(s0=s0, K=K, r=r, T=T, sigma=sigma, N=N)
+#stock_tree, option_tree = engine.option_prices(option_type = option_type)
+#print(f"Calculated European {option_type.capitalize()} Price: ${option_tree[0, 0]:.4f}")
 
-engine.plot_binomial_tree(stock_tree, option_tree)
+#engine.plot_binomial_tree(stock_tree, option_tree)
