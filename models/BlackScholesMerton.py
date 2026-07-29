@@ -1,6 +1,10 @@
 class BlackScholesMerton:
 
-    def __init__(self, S, K, r, q, T, sigma):
+    def __init__(self, 
+                S = None, K = None, 
+                r = None, q = None, 
+                T = None, sigma = None
+        ):
         import numpy as np
         self.np = np
 
@@ -77,9 +81,9 @@ class BlackScholesMerton:
 
         return delta, theta, rho, gamma, vega
 
-# model = BlackScholesMerton(100.0, 105.0, 0.07, 0.04, 2.0, 0.2)
-# price = model.option_price(option_type = 'call')
-# delta, theta, rho, gamma, vega = model.greeks(option_type='call')
+#model = BlackScholesMerton(S=100.0, K=105.0, r=0.07, q=0.04, T=2.0, sigma=0.2)
+#price = model.option_price(option_type = 'call')
+#delta, theta, rho, gamma, vega = model.greeks(option_type='call')
 
-# print(price)
-# print(delta, theta, rho, gamma, vega)
+#print(price)
+#print(delta, theta, rho, gamma, vega)

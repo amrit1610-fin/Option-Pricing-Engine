@@ -1,6 +1,10 @@
 class BinomialOptionPricing:
 
-    def __init__(self, s0, K, r, T, sigma, N, option_type):
+    def __init__(self, 
+                s0 = None, K = None, 
+                r = None, T = None, 
+                sigma = None, N = None
+    ):
         import numpy as np
         self.np = np
 
@@ -19,7 +23,7 @@ class BinomialOptionPricing:
         self.p = (self.np.exp(self.r * self.dt) - self.d) / (self.u - self.d)
         self.discount = self.np.exp(-self.r * self.dt)
 
-    def option_prices(self):
+    def option_prices(self, option_type='call'):
 
         # 1. Initialize trees with zeros
         stock_tree = self.np.zeros((self.N+1 , self.N+1))
@@ -32,9 +36,9 @@ class BinomialOptionPricing:
 
         # 3. Calculating terminal values at expiry
         for j in range(self.N + 1):
-            if self.option_type.lower() == 'call':
+            if option_type.lower() == 'call':
                 option_tree[j, N] = max(0, stock_tree[j, self.N] - self.K)
-            elif self.option_type.lower() == 'put':
+            elif option_type.lower() == 'put':
                 option_tree[j, N] = max(0, self.K - stock_tree[j, self.N])
 
         # 4. Building option tree by calculating Option prices (Backward Induction)
@@ -46,7 +50,7 @@ class BinomialOptionPricing:
         return stock_tree, option_tree
 
 
-    def plot_binomial_tree(self,stock_tree, option_tree, N):
+    def plot_binomial_tree(self,stock_tree, option_tree):
         """
         Visualizes the calculated trees using NetworkX and Matplotlib.
         """
@@ -58,7 +62,7 @@ class BinomialOptionPricing:
         labels = {}
 
         # Map the nodes, positions, and labels
-        for i in range(N + 1):
+        for i in range(self.N + 1):
             for j in range(i + 1):
                 node_id = f"{i}_{j}"
                 G.add_node(node_id)
@@ -70,7 +74,7 @@ class BinomialOptionPricing:
                 labels[node_id] = f"S: {stock_tree[j, i]:.2f}\nV: {option_tree[j, i]:.2f}"
 
                 # Add directional edges connecting to the next time step
-                if i < N:
+                if i < self.N:
                     G.add_edge(node_id, f"{i+1}_{j}")     # Up move path
                     G.add_edge(node_id, f"{i+1}_{j+1}")   # Down move path
 
@@ -81,20 +85,20 @@ class BinomialOptionPricing:
                 font_size=9, font_weight="bold", arrows=True,
                 edge_color="gray")
         
-        plt.title(f"{N}-Step Binomial Tree\nS = Stock Price, V = Option Value", fontsize=14)
+        plt.title(f"{self.N}-Step Binomial Tree\nS = Stock Price, V = Option Value", fontsize=14)
         plt.margins(0.1)
         plt.show()
 
-# r = 0.05      # risk-free rate
-#T = 1         # Time to expiry
-#N = 10        # time steps
-#sigma = 0.3   # constant volatility
-#s0 = 50       # initial stock price
-#K = 52        # Strike price
-#option_type = "Call"
+r = 0.05      # risk-free rate
+T = 1         # Time to expiry
+N = 10        # time steps
+sigma = 0.3   # constant volatility
+s0 = 50       # initial stock price
+K = 52        # Strike price
+option_type = "Call"
 
-#engine = BinomialOptionPricing(s0, K, r, T, sigma, N, option_type)
-#stock_tree, option_tree = engine.option_prices()
-#print(f"Calculated European {option_type.capitalize()} Price: ${option_tree[0, 0]:.4f}")
+engine = BinomialOptionPricing(s0=s0, K=K, r=r, T=T, sigma=sigma, N=N)
+stock_tree, option_tree = engine.option_prices(option_type = option_type)
+print(f"Calculated European {option_type.capitalize()} Price: ${option_tree[0, 0]:.4f}")
 
-#engine.plot_binomial_tree(stock_tree, option_tree, N)
+engine.plot_binomial_tree(stock_tree, option_tree)
