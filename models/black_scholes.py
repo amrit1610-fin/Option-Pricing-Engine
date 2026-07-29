@@ -4,9 +4,9 @@ from scipy.stats import norm
 class BlackScholesMerton:
 
     def __init__(self, 
-                S = None, K = None, 
-                r = None, q = None, 
-                T = None, sigma = None
+                S:float = None, K:float = None, 
+                r:float = None, q:float = None, 
+                T:float = None, sigma:float = None
         ):
         self.S = S
         self.K = K

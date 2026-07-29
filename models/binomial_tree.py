@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 class BinomialOptionPricing:
 
     def __init__(self, 
-                s0 = None, K = None, 
-                r = None, T = None, 
-                sigma = None, N = None
+                s0:float = None, K:float = None, 
+                r:float = None, T:float = None, 
+                sigma:float = None, N:int = None
         ):
         self.s0 = s0
         self.K = K
@@ -38,9 +38,9 @@ class BinomialOptionPricing:
         # 3. Calculating terminal values at expiry
         for j in range(self.N + 1):
             if option_type.lower() == 'call':
-                option_tree[j, N] = max(0, stock_tree[j, self.N] - self.K)
+                option_tree[j, self.N] = max(0, stock_tree[j, self.N] - self.K)
             elif option_type.lower() == 'put':
-                option_tree[j, N] = max(0, self.K - stock_tree[j, self.N])
+                option_tree[j, self.N] = max(0, self.K - stock_tree[j, self.N])
 
         # 4. Building option tree by calculating Option prices (Backward Induction)
         for i in range(self.N - 1, -1, -1):
