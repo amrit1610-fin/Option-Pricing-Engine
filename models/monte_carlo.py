@@ -1,16 +1,17 @@
 import numpy as np
-# from black_scholes import BlackScholesMerton 
 
 class MonteCarloSimulations:
 
     def __init__(self, 
-                s0: float, K: float,
-                r: float, T: float, sigma: float, 
-                num_paths: int, time_steps: int
+                 s0: float, K: float,
+                 r: float,  q: float, 
+                 T: float, sigma: float, 
+                 num_paths: int, time_steps: int
         ):
         self.s0 = s0
         self.K = K
         self.r = r
+        self.q = q
         self.T = T
         self.sigma = sigma
         self.num_paths = num_paths
@@ -27,7 +28,8 @@ class MonteCarloSimulations:
         paths = np.zeros((self.num_paths, self.time_steps + 1))
         paths[:, 0] = self.s0
         
-        drift = (self.r - 0.5 * self.sigma**2) * dt
+        # Adjusted drift to include dividend yield 'q'
+        drift = (self.r - self.q - 0.5 * self.sigma**2) * dt
         diffusion = self.sigma * np.sqrt(dt)
         
         for t in range(1, self.time_steps + 1):
@@ -67,8 +69,8 @@ class MonteCarloSimulations:
         else:
             simulated_payoffs = np.maximum(self.K - terminal_prices, 0)
     
-        # Expected terminal price (S_t)
-        expected_terminal_price = self.s0 * np.exp(self.r * self.T)
+        # Expected terminal price (S_t) adjusted for dividend yield 'q'
+        expected_terminal_price = self.s0 * np.exp((self.r - self.q) * self.T)
 
         # Control Variate process        
         covariance = np.cov(simulated_payoffs, terminal_prices)[0, 1]
@@ -83,7 +85,7 @@ class MonteCarloSimulations:
         return discounted_price, standard_error
 
 
-#mc = MonteCarloSimulations(s0 = 100, K = 106, r=0.07, T=2.0, sigma=0.2, num_paths=50000, time_steps=252) # 252 trading days
+#mc = MonteCarloSimulations(s0 = 100, K = 106, r=0.07, q=0.04 T=2.0, sigma=0.2, num_paths=50000, time_steps=252) # 252 trading days
 #price, se = mc.option_price(option_type='call')
 #print(f"Standard MC Price: {price:.4f} (Standard Error: {se:.4f})")
 
