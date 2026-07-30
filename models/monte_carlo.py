@@ -7,7 +7,8 @@ class MonteCarloSimulations:
         self.num_paths = num_paths
         self.time_steps = time_steps
 
-    def _generate_paths(self, spot: float, rate: float, vol: float, maturity: float) -> np.ndarray:
+    def _generate_paths(self, spot: float, rate: float, 
+                        vol: float, maturity: float) -> np.ndarray:
         """
         Generates Geometric Brownian Motion (GBM) paths.
         Uses Antithetic Variates for basic variance reduction.
@@ -87,6 +88,6 @@ class MonteCarloSimulations:
         return discounted_price, standard_error
 
 
-mc = MonteCarloSimulations(num_paths=50000, time_steps=252) # 252 trading days
-price, se = mc.price_european(spot=100, strike=95, rate=0.07, vol=0.2, maturity=2.0, option_type='put')
-print(f"Standard MC Price: {price:.4f} (Standard Error: {se:.4f})")
+#mc = MonteCarloSimulations(num_paths=50000, time_steps=252) # 252 trading days
+#price, se = mc.price_european(spot=100, strike=95, rate=0.07, vol=0.2, maturity=2.0, option_type='put')
+#sprint(f"Standard MC Price: {price:.4f} (Standard Error: {se:.4f})")

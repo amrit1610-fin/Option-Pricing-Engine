@@ -23,6 +23,7 @@ class BlackScholesMerton:
             self.d1 = float('inf') if self.S > self.K else float('-inf')
             self.d2 = float('inf') if self.S > self.K else float('-inf')
 
+    # defining the closed-form option price
     def option_price(self, option_type):
         if option_type == 'call':
             if self.T <= 0:
@@ -35,10 +36,13 @@ class BlackScholesMerton:
         else:
             raise ValueError("!Input correct opton type!")
 
+    # developing greeks by partially differentiating the Black-scholes PDE
     def greeks(self, option_type):
 
+        # global term to be used by both put and call for theta calculation
         theta_term1 = -(self.S * norm.pdf(self.d1) * self.sigma * np.exp(-self.q * self.T)) / (2 * np.sqrt(self.T))
 
+        # calculating delta, theta, rho for call option
         if option_type == 'call':
             # 1. Delta
             delta = np.exp(-self.q*self.T) * norm.cdf(self.d1)
@@ -47,12 +51,13 @@ class BlackScholesMerton:
             theta_term2 = self.q * self.S * np.exp(-self.q * self.T) * norm.cdf(self.d1)
             theta_term3 = self.r * self.K * np.exp(-self.r * self.T) * norm.cdf(self.d2)
             annual_theta = theta_term1 + theta_term2 - theta_term3
-            theta = annual_theta / 365.0 
+            theta = annual_theta / 365.0     # get per day theta
 
             # 3. Rho
             annual_rho = self.K * self.T * np.exp(-self.r * self.T) * norm.cdf(self.d2)
-            rho = annual_rho / 100.0
+            rho = annual_rho / 100.0         # get percentage change
 
+        # calculating delta, theta, rho for put option
         elif option_type == 'put':
             # 1. Delta
             delta = np.exp(-self.q*self.T) * (norm.cdf(self.d1) - 1)
@@ -61,12 +66,13 @@ class BlackScholesMerton:
             theta_term2 = self.q * self.S * np.exp(-self.q * self.T) * norm.cdf(-self.d1)
             theta_term3 = self.r * self.K * np.exp(-self.r * self.T) * norm.cdf(-self.d2)
             annual_theta = theta_term1 - theta_term2 + theta_term3
-            theta = annual_theta / 365.0 
+            theta = annual_theta / 365.0      # get per day theta
 
             # 3. Rho
             annual_rho = -(self.K * self.T * np.exp(-self.r * self.T) * norm.cdf(-self.d2))
-            rho = annual_rho / 100.0
+            rho = annual_rho / 100.0    # get percentage change
 
+        # Gamma and Vega are independent of option type (call/ put)
         # 4. Gamma
         g_numerator = np.exp(-self.q * self.T) * norm.pdf(self.d1)
         g_denominator = self.S * self.sigma * np.sqrt(self.T)
@@ -74,7 +80,7 @@ class BlackScholesMerton:
 
         # 5. Vega
         annual_vega = self.S * np.sqrt(self.T) * norm.pdf(self.d1) * np.exp(-self.q * self.T)
-        vega = annual_vega / 100.0 
+        vega = annual_vega / 100.0     # get percentage change
 
         return delta, theta, rho, gamma, vega
 
