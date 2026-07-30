@@ -5,23 +5,24 @@ import matplotlib.pyplot as plt
 class BinomialOptionPricing:
 
     def __init__(self, 
-                s0:float = None, K:float = None, 
-                r:float = None, T:float = None, 
-                sigma:float = None, N:int = None
+                 s0:float = None, K:float = None, 
+                 r:float = None, T:float = None, 
+                 sigma:float = None, N:int = None,
+                 q:float = 0.0
         ):
         self.s0 = s0
         self.K = K
         self.r = r
+        self.q = q
         self.T = T
         self.sigma = sigma
         self.N = N
-        self.option_type = option_type
 
         # derived formulas to be needed later
         self.dt = self.T / self.N
         self.u = np.exp(self.sigma * np.sqrt(self.dt))
         self.d = 1 / self.u
-        self.p = (np.exp(self.r * self.dt) - self.d) / (self.u - self.d)
+        self.p = (np.exp((self.r - self.q) * self.dt) - self.d) / (self.u - self.d)
         self.discount = np.exp(-self.r * self.dt)
 
     def option_prices(self, option_type='call'):
