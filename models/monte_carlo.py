@@ -83,12 +83,12 @@ class MonteCarloSimulations:
         return discounted_price, standard_error
 
 
-mc = MonteCarloSimulations(s0 = 100, K = 106, r=0.07, T=2.0, sigma=0.2, num_paths=50000, time_steps=252) # 252 trading days
-price, se = mc.option_price(option_type='call')
-print(f"Standard MC Price: {price:.4f} (Standard Error: {se:.4f})")
+#mc = MonteCarloSimulations(s0 = 100, K = 106, r=0.07, T=2.0, sigma=0.2, num_paths=50000, time_steps=252) # 252 trading days
+#price, se = mc.option_price(option_type='call')
+#print(f"Standard MC Price: {price:.4f} (Standard Error: {se:.4f})")
 
-cv_price, cv_se = mc.price_with_control_variate(option_type='call')
-print(f"Control variate MC Price: {cv_price:.4f} (Standard Error: {cv_se:.4f})")
+#cv_price, cv_se = mc.price_with_control_variate(option_type='call')
+#print(f"Control variate MC Price: {cv_price:.4f} (Standard Error: {cv_se:.4f})")
 
 
 
