@@ -131,5 +131,26 @@ def main():
     print(f"  Heston MC Put:    ±{1.96 * h_mc_put_se:.4f}")
     print("=" * 80 + "\n")
 
+    # Printing Greeks for every Model
+    print_header("NUMERICAL GREEKS COMPARISON (CALL OPTION)")
+    print(f"{'Greek':<10} | {'Black-Scholes':<15} | {'Binomial Tree':<15} | {'Monte Carlo':<15} | {'Heston (Fourier)':<15}")
+    print("-" * 80)
+
+    bs_greeks = bs_model.calculate_greeks('call')
+    tree_greeks = tree_model.calculate_greeks('call')
+    mc_greeks = mc_model.calculate_greeks('call')
+    heston_greeks = heston_ft.calculate_greeks(K, 'call')
+
+    greeks_keys = ['delta', 'gamma', 'vega', 'theta', 'rho']
+    
+    for greek in greeks_keys:
+        bs_val = bs_greeks[greek]
+        t_val = tree_greeks[greek]
+        m_val = mc_greeks[greek]
+        h_val = heston_greeks[greek]
+        print(f"{greek.capitalize():<10} | {bs_val:<15.4f} | {t_val:<15.4f} | {m_val:<15.4f} | {h_val:<15.4f}")
+
+    print("=" * 80 + "\n")
+
 if __name__ == "__main__":
     main()

@@ -51,6 +51,50 @@ class BinomialOptionPricing:
 
         return stock_tree, option_tree
 
+    def calculate_greeks(self, option_type='call'):
+        """
+        Calculates Greeks using Finite Difference Method (Bump and Revalue)
+        """
+        dS = self.s0 * 0.01  # 1% bump in spot
+        dVol = 0.01          # 1% bump in vol
+        dT = 1 / 365         # 1 day bump in time
+        dR = 0.0001          # 1 basis point bump in rate
+
+        def get_price(s, v, t, r_rate):
+            model = BinomialOptionPricing(s0=s, K=self.K, r=r_rate, q=self.q, T=t, sigma=v, N=self.N)
+            _, opt_tree = model.option_prices(option_type)
+            return opt_tree[0, 0]
+
+        base_price = get_price(self.s0, self.sigma, self.T, self.r)
+        
+        # Delta & Gamma
+        price_up = get_price(self.s0 + dS, self.sigma, self.T, self.r)
+        price_dn = get_price(self.s0 - dS, self.sigma, self.T, self.r)
+        delta = (price_up - price_dn) / (2 * dS)
+        gamma = (price_up - 2 * base_price + price_dn) / (dS ** 2)
+
+        # Vega
+        price_vol_up = get_price(self.s0, self.sigma + dVol, self.T, self.r)
+        price_vol_dn = get_price(self.s0, self.sigma - dVol, self.T, self.r)
+        vega = ((price_vol_up - price_vol_dn) / (2 * dVol)) / 100
+
+        # Theta (Note: we decrease time to maturity to simulate time passing)
+        price_time_pass = get_price(self.s0, self.sigma, self.T - dT, self.r)
+        theta = ((price_time_pass - base_price) / dT) / 365.0
+
+        # Rho
+        price_r_up = get_price(self.s0, self.sigma, self.T, self.r + dR)
+        price_r_dn = get_price(self.s0, self.sigma, self.T, self.r - dR)
+        rho = ((price_r_up - price_r_dn) / (2 * dR)) / 100
+
+        return {
+            'delta': delta,
+            'gamma': gamma,
+            'vega': vega,
+            'theta': theta,
+            'rho': rho
+        }
+
 
     def plot_binomial_tree(self,stock_tree, option_tree):
         """

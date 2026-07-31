@@ -167,6 +167,49 @@ class HestonFourierModel:
             raise ValueError("Option type must be 'call' or 'put'")
 
 
+    def calculate_greeks(self, K: float, option_type: str = 'call'):
+        """Calculates Greeks using Finite Differences on the fast Fourier Engine."""
+        dS = self.s0 * 0.01
+        dVol = 0.01          # Bump to initial variance v0
+        dT = 1 / 365
+        dR = 0.0001
+
+        def get_price(s, v, t, r_rate):
+            model = HestonFourierModel(s0=s, v0=v, r=r_rate, q=self.q, T=t, sigma=self.sigma, 
+                                       rho=self.rho, kappa=self.kappa, theta=self.theta)
+            return model.option_price(K, option_type)
+
+        base_price = get_price(self.s0, self.v0, self.T, self.r)
+        
+        # Delta & Gamma
+        price_up = get_price(self.s0 + dS, self.v0, self.T, self.r)
+        price_dn = get_price(self.s0 - dS, self.v0, self.T, self.r)
+        delta = (price_up - price_dn) / (2 * dS)
+        gamma = (price_up - 2 * base_price + price_dn) / (dS ** 2)
+
+        # Vega (w.r.t initial variance v0)
+        price_vol_up = get_price(self.s0, self.v0 + dVol, self.T, self.r)
+        price_vol_dn = get_price(self.s0, self.v0 - dVol, self.T, self.r)
+        vega = ((price_vol_up - price_vol_dn) / (2 * dVol)) / 100
+
+        # Theta 
+        price_time_pass = get_price(self.s0, self.v0, self.T - dT, self.r)
+        theta = ((price_time_pass - base_price) / dT) / 365.0
+
+        # Rho
+        price_r_up = get_price(self.s0, self.v0, self.T, self.r + dR)
+        price_r_dn = get_price(self.s0, self.v0, self.T, self.r - dR)
+        rho = ((price_r_up - price_r_dn) / (2 * dR)) / 100
+
+        return {
+            'delta': delta,
+            'gamma': gamma,
+            'vega': vega,
+            'theta': theta,
+            'rho': rho
+        }
+
+
 #s0, v0, r, q, T = 100, 0.04, 0.07, 0.0, 1.0
 #sigma, rho, kappa, theta = 0.3, -0.7, 2.0, 0.04
 #K = 90

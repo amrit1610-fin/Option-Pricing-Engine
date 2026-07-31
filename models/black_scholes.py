@@ -37,7 +37,7 @@ class BlackScholesMerton:
             raise ValueError("!Input correct opton type!")
 
     # developing greeks by partially differentiating the Black-scholes PDE
-    def greeks(self, option_type):
+    def calculate_greeks(self, option_type):
 
         # global term to be used by both put and call for theta calculation
         theta_term1 = -(self.S * norm.pdf(self.d1) * self.sigma * np.exp(-self.q * self.T)) / (2 * np.sqrt(self.T))
@@ -82,11 +82,17 @@ class BlackScholesMerton:
         annual_vega = self.S * np.sqrt(self.T) * norm.pdf(self.d1) * np.exp(-self.q * self.T)
         vega = annual_vega / 100.0     # get percentage change
 
-        return delta, theta, rho, gamma, vega
+        return {
+            'delta': delta,
+            'gamma': gamma,
+            'vega': vega,
+            'theta': theta,
+            'rho': rho
+        }
 
 #model = BlackScholesMerton(S=100.0, K=105.0, r=0.07, q=0.04, T=2.0, sigma=0.2)
 #price = model.option_price(option_type = 'call')
-#delta, theta, rho, gamma, vega = model.greeks(option_type='call')
+#delta, theta, rho, gamma, vega = model.calculate_greeks(option_type='call')
 
 #print(price)
 #print(delta, theta, rho, gamma, vega)
