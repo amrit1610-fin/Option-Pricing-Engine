@@ -161,34 +161,110 @@ def main():
             st.dataframe(styled_greeks, use_container_width=True, hide_index=True)
 
             st.divider()
-            st.subheader("Interactive Visualizations")
+            st.subheader("Interactive Analytics & Visualizations")
             
-            col_chart1, col_chart2 = st.columns(2)
+            # --- 4. Create Tabs for different analytical views ---
+            tab1, tab2, tab3 = st.tabs([
+                "Price Sensitivity (Spot)", 
+                "Numerical Convergence (MC & Tree)", 
+                "Heston Volatility Skew"
+            ])
             
-            with col_chart1:
-                # Option Price Curve (Spot vs Price)
-                S_range = np.linspace(max(0.1, spot * 0.5), spot * 1.5, 100)
-                bs_prices_curve = [BlackScholesMerton(S=s, K=strike, r=rate, q=div_yield, T=ttm, sigma=vol).option_price(option_type) for s in S_range]
+            with tab1:
+                col_chart1, col_chart2 = st.columns(2)
                 
-                fig1 = go.Figure()
-                fig1.add_trace(go.Scatter(x=S_range, y=bs_prices_curve, mode='lines', name=f'BS {option_type.capitalize()} Price', line=dict(color='#00CC96', width=3)))
+                with col_chart1:
+                    # Option Price Curve (Spot vs Price)
+                    S_range = np.linspace(max(0.1, spot * 0.5), spot * 1.5, 100)
+                    bs_prices_curve = [BlackScholesMerton(S=s, K=strike, r=rate, q=div_yield, T=ttm, sigma=vol).option_price(option_type) for s in S_range]
+                    
+                    fig1 = go.Figure()
+                    fig1.add_trace(go.Scatter(x=S_range, y=bs_prices_curve, mode='lines', name=f'BS {option_type.capitalize()} Price', line=dict(color='#00CC96', width=3)))
+                    
+                    current_price = bs_call if option_type == 'call' else bs_put
+                    fig1.add_trace(go.Scatter(x=[spot], y=[current_price], mode='markers', name='Current Spot', marker=dict(color='#EF553B', size=12)))
+                    
+                    fig1.update_layout(title="Option Price vs. Underlying Spot", xaxis_title="Spot Price", yaxis_title=f"{option_type.capitalize()} Premium ($)", template="plotly_dark", hovermode="x unified")
+                    st.plotly_chart(fig1, use_container_width=True)
                 
-                current_price = bs_call if option_type == 'call' else bs_put
-                fig1.add_trace(go.Scatter(x=[spot], y=[current_price], mode='markers', name='Current Spot', marker=dict(color='#EF553B', size=12)))
-                
-                fig1.update_layout(title="Option Price vs. Underlying Spot", xaxis_title="Spot Price", yaxis_title=f"{option_type.capitalize()} Premium ($)", template="plotly_dark", hovermode="x unified")
-                st.plotly_chart(fig1, use_container_width=True)
+                with col_chart2:
+                    # Greeks Surface (Spot vs Delta)
+                    bs_deltas_curve = [BlackScholesMerton(S=s, K=strike, r=rate, q=div_yield, T=ttm, sigma=vol).calculate_greeks(option_type)['delta'] for s in S_range]
+                    
+                    fig_delta = go.Figure()
+                    fig_delta.add_trace(go.Scatter(x=S_range, y=bs_deltas_curve, mode='lines', name=f'{option_type.capitalize()} Delta', line=dict(color='#FFA15A', width=3)))
+                    fig_delta.update_layout(title=f"Delta Sensitivity Profile", xaxis_title="Spot Price", yaxis_title="Delta", template="plotly_dark", hovermode="x unified")
+                    st.plotly_chart(fig_delta, use_container_width=True)
 
-            with col_chart2:
-                # Volatility Skew / Heston Convergence (Spot vs Price difference)
-                heston_prices_curve = [HestonFourierModel(s0=s, v0=v0, r=rate, q=div_yield, T=ttm, sigma=sigma_v, rho=rho, kappa=kappa, theta=theta).option_price(strike, option_type) for s in S_range]
-                price_diff = np.array(heston_prices_curve) - np.array(bs_prices_curve)
+            with tab2:
+                col_conv1, col_conv2 = st.columns(2)
                 
-                fig2 = go.Figure()
-                fig2.add_trace(go.Bar(x=S_range, y=price_diff, name='Heston - BS Premium', marker_color='#AB63FA'))
-                fig2.add_hline(y=0, line_dash="dash", line_color="white")
-                fig2.update_layout(title=f"Heston Model Premium (Skew Effect for {option_type.capitalize()})", xaxis_title="Spot Price", yaxis_title="Price Difference ($)", template="plotly_dark", hovermode="x unified")
-                st.plotly_chart(fig2, use_container_width=True)
+                with col_conv1:
+                    # Monte Carlo Convergence
+                    # We run a fast simulation to track running average
+                    mc_fast = MonteCarloSimulations(s0=spot, K=strike, r=rate, q=div_yield, T=ttm, sigma=vol, num_paths=mc_paths, time_steps=max(int(ttm * 252), 50))
+                    paths = mc_fast._generate_paths()
+                    terminal_prices = paths[:, -1]
+                    
+                    if option_type == 'call':
+                        sim_payoffs = np.maximum(terminal_prices - strike, 0)
+                    else:
+                        sim_payoffs = np.maximum(strike - terminal_prices, 0)
+                        
+                    discounted_payoffs = np.exp(-rate * ttm) * sim_payoffs
+                    
+                    # Calculate cumulative average
+                    cumulative_avg = np.cumsum(discounted_payoffs) / np.arange(1, mc_paths + 1)
+                    
+                    # Subsample for plotting performance (max 1000 points)
+                    plot_step = max(1, mc_paths // 1000)
+                    x_paths = np.arange(1, mc_paths + 1, plot_step)
+                    y_prices = cumulative_avg[::plot_step]
+                    
+                    fig_mc = go.Figure()
+                    fig_mc.add_trace(go.Scatter(x=x_paths, y=y_prices, mode='lines', name='MC Estimate', line=dict(color='#AB63FA', width=2)))
+                    fig_mc.add_hline(y=bs_call if option_type=='call' else bs_put, line_dash="dash", line_color="white", annotation_text="Analytical Price")
+                    fig_mc.update_layout(title="Monte Carlo Convergence", xaxis_title="Number of Paths", yaxis_title="Estimated Price", template="plotly_dark")
+                    st.plotly_chart(fig_mc, use_container_width=True)
+                    
+                with col_conv2:
+                    # Binomial Tree Oscillation
+                    tree_steps_range = np.arange(10, 150, 5)
+                    tree_prices = []
+                    for n in tree_steps_range:
+                        model = BinomialOptionPricing(s0=spot, K=strike, r=rate, q=div_yield, T=ttm, sigma=vol, N=n)
+                        _, t_tree = model.option_prices(option_type)
+                        tree_prices.append(t_tree[0,0])
+                        
+                    fig_tree = go.Figure()
+                    fig_tree.add_trace(go.Scatter(x=tree_steps_range, y=tree_prices, mode='lines+markers', name='Tree Price', line=dict(color='#19D3F3', width=2)))
+                    fig_tree.add_hline(y=bs_call if option_type=='call' else bs_put, line_dash="dash", line_color="white", annotation_text="Analytical Price")
+                    fig_tree.update_layout(title="Binomial Tree 'Even/Odd' Oscillation", xaxis_title="Number of Steps (N)", yaxis_title="Estimated Price", template="plotly_dark")
+                    st.plotly_chart(fig_tree, use_container_width=True)
+
+            with tab3:
+                # Heston Volatility Skew (Price Diff across Strikes)
+                st.markdown("##### The Heston Skew Effect vs. Black-Scholes")
+                st.markdown("Because Black-Scholes assumes constant volatility, it often misprices deep Out-of-the-Money (OTM) options. The Heston model, using your $\\rho$ (correlation) and $\\sigma_v$ (vol-of-vol) inputs, captures this 'Volatility Smile/Skew'.")
+                
+                K_range = np.linspace(spot * 0.7, spot * 1.3, 40)
+                
+                skew_bs_prices = [BlackScholesMerton(S=spot, K=k, r=rate, q=div_yield, T=ttm, sigma=vol).option_price(option_type) for k in K_range]
+                skew_heston_prices = [HestonFourierModel(s0=spot, v0=v0, r=rate, q=div_yield, T=ttm, sigma=sigma_v, rho=rho, kappa=kappa, theta=theta).option_price(K=k, option_type=option_type) for k in K_range]
+                
+                skew_diff = np.array(skew_heston_prices) - np.array(skew_bs_prices)
+                
+                fig_skew = go.Figure()
+                fig_skew.add_trace(go.Bar(x=K_range, y=skew_diff, name='Heston Price - BS Price', marker_color='#FF6692'))
+                fig_skew.add_vline(x=spot, line_dash="dash", line_color="white", annotation_text="At-The-Money (ATM)")
+                fig_skew.update_layout(
+                    title=f"Heston Mispricing vs. Black-Scholes across Strikes ({option_type.capitalize()})", 
+                    xaxis_title="Strike Price (K)", 
+                    yaxis_title="Price Difference ($)", 
+                    template="plotly_dark", 
+                    hovermode="x unified"
+                )
+                st.plotly_chart(fig_skew, use_container_width=True)
 
 if __name__ == "__main__":
     main()
