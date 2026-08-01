@@ -1,8 +1,8 @@
 <div align="center">
 
-# 📈 Quantitative Option Pricing Engine
+# 📈 European Option Pricing Engine
 
-A comprehensive, modular derivatives pricing library and interactive dashboard built in Python. This project compares traditional constant-volatility models against advanced stochastic volatility models and numerical approximation methods.
+A comprehensive, modular derivatives (*european options*) pricing library and interactive dashboard built in Python. This project compares traditional constant-volatility models against advanced stochastic volatility models and numerical approximation methods.
 
 ### 🚀 Live Interactive Dashboard
 
