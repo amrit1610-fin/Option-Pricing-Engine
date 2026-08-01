@@ -1,9 +1,7 @@
 streamlit
 pandas
-time
 numpy
 scipy
 plotly
 networkx
 matplotlib
-dataclasses
