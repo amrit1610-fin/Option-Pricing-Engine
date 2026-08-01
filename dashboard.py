@@ -12,7 +12,7 @@ from models.monte_carlo import MonteCarloSimulations
 from models.heston_stoch_vol import HestonMonteCarloModel, HestonFourierModel
 
 st.set_page_config(
-    page_title="Quant Option Pricing Engine",
+    page_title="European Option Pricing Engine",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -62,7 +62,7 @@ def main():
     mc_paths = st.sidebar.selectbox("Monte Carlo Paths", options=[10000, 25000, 50000, 100000], index=1)
     tree_steps = st.sidebar.slider("Binomial Tree Steps", min_value=100, max_value=1000, value=500, step=100)
     
-    st.markdown('<p class="main-header">Quantitative Option Pricing Engine</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">European Option Pricing Engine</p>', unsafe_allow_html=True)
     st.markdown("A modular derivatives pricing library comparing analytical, tree-based, simulation, and stochastic volatility models.")
     st.divider()
 

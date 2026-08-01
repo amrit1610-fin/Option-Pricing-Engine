@@ -4,6 +4,8 @@
 
 A comprehensive, modular derivatives (*european options*) pricing library and interactive dashboard built in Python. This project compares traditional constant-volatility models against advanced stochastic volatility models and numerical approximation methods.
 
+</div>
+
 ### 🚀 Live Interactive Dashboard
 
 Experience the engine directly in your browser: [Launch Streamlit Dashboard](https://european-option-pricing-engine.streamlit.app/)
