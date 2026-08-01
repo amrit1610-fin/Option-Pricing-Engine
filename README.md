@@ -42,6 +42,7 @@ Drops the constant volatility assumption of Black-Scholes, utilizing the Cox-Ing
 
 The repository is built with a strictly modular, object-oriented design, separating core financial logic from numerical engines and the UI.
 
+```
 Option-Pricing-Engine/
 │
 ├── core/                   
@@ -56,6 +57,7 @@ Option-Pricing-Engine/
 ├── app.py                  # Streamlit Interactive Web Dashboard
 ├── main.py                 # CLI Execution & Profiling Script
 └── requirements.txt        # Deployment dependencies
+```
 
 
 ### ⚙️ Installation & Local Usage
