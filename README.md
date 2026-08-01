@@ -54,7 +54,7 @@ Option-Pricing-Engine/
 │   ├── monte_carlo.py      
 │   └── heston_stoch_vol.py 
 │
-├── app.py                  # Streamlit Interactive Web Dashboard
+├── dashboard.py                  # Streamlit Interactive Web Dashboard
 ├── main.py                 # CLI Execution & Profiling Script
 └── requirements.txt        # Deployment dependencies
 ```
