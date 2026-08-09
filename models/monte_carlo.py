@@ -1,133 +1,139 @@
 import numpy as np
+import copy
 
-class MonteCarloSimulations:
+from models.base import PricingEngine
+from core.instruments import Option, EuropeanOption
+from core.market_data import MarketData
 
-    def __init__(self, 
-                 s0: float, K: float,
-                 r: float, T: float, sigma: float, 
-                 num_paths: int, time_steps: int,
-                 q: float = 0.0
-        ):
-        self.s0 = s0
-        self.K = K
-        self.r = r
-        self.q = q
-        self.T = T
-        self.sigma = sigma
+class MonteCarloEngine(PricingEngine):
+    """
+    Monte Carlo Simulation Engine using Geometric Brownian Motion (GBM).
+    Handles path-dependent Exotic options seamlessly.
+    """
+    
+    # Engine Capabilities (UI Dynamic Metadata)
+    # Note: American options via LSMC will be added in Phase 4
+    SUPPORTED_STYLES = ['European'] 
+    SUPPORTED_EXOTICS = ['None', 'Asian', 'Barrier']
+
+    def __init__(self, market_data: MarketData, num_paths: int = 50000, time_steps: int = 252):
+        super().__init__(market_data)
         self.num_paths = num_paths
         self.time_steps = time_steps
 
     def _generate_paths(self, seed: int = None) -> np.ndarray:
+        """Generates the matrix of simulated stock paths."""
         if seed is not None:
             np.random.seed(seed)
             
-        dt = self.T / self.time_steps
-        # Antithetic Variates
+        S0 = self.market_data.spot_price
+        r = self.market_data.risk_free_rate
+        q = self.market_data.dividend_yield
+        T = self.market_data.time_to_expiry
+        sigma = self.market_data.volatility
+        
+        dt = T / self.time_steps
+        
+        # Antithetic Variates for variance reduction
         Z = np.random.standard_normal((int(self.num_paths / 2), self.time_steps))
         Z = np.concatenate((Z, -Z), axis=0)
         
         paths = np.zeros((self.num_paths, self.time_steps + 1))
-        paths[:, 0] = self.s0
+        paths[:, 0] = S0
         
-        # Include dividend yield 'q' in drift
-        drift = (self.r - self.q - 0.5 * self.sigma**2) * dt
-        diffusion = self.sigma * np.sqrt(dt)
+        drift = (r - q - 0.5 * sigma**2) * dt
+        diffusion = sigma * np.sqrt(dt)
         
         for t in range(1, self.time_steps + 1):
             paths[:, t] = paths[:, t-1] * np.exp(drift + diffusion * Z[:, t-1])
             
         return paths
 
-    def option_price(self, option_type: str = 'call', seed: int = None):
-        """Standard Monte Carlo pricing for a European Option."""
-        paths = self._generate_paths(seed=seed)
-        terminal_prices = paths[:, -1]
+    def calculate_price(self, option: Option, seed: int = None, return_se: bool = False):
+        """
+        Executes the pricing. 
+        Passes the entire path matrix to the Instrument's payoff function.
+        """
+        paths = self._generate_paths(seed)
         
-        if option_type.lower() == 'call':
-            payoffs = np.maximum(terminal_prices - self.K, 0)
-        elif option_type.lower() == 'put':
-            payoffs = np.maximum(self.K - terminal_prices, 0)
-        else:
-            raise ValueError("Option type can only be call or put!")
+        # 1. The magic of OOP: The Option calculates its own exotic payoff
+        simulated_payoffs = option.get_payoff(paths)
+        
+        r = self.market_data.risk_free_rate
+        T = self.market_data.time_to_expiry
+        discount_factor = np.exp(-r * T)
+        
+        # 2. Apply Control Variate variance reduction ONLY for standard European options
+        if isinstance(option, EuropeanOption):
+            terminal_prices = paths[:, -1]
+            expected_terminal_price = self.market_data.spot_price * np.exp((r - self.market_data.dividend_yield) * T)
             
-        discounted_price = np.exp(-self.r * self.T) * np.mean(payoffs)
-        standard_error = np.std(payoffs * np.exp(-self.r * self.T)) / np.sqrt(self.num_paths)
-        
-        return discounted_price, standard_error
-
-    def price_with_control_variate(self, option_type: str = 'call', seed: int = None):
-        """Uses the terminal stock price S_T as a control variate to reduce variance."""
-        paths = self._generate_paths(seed=seed)
-        terminal_prices = paths[:, -1]
-        
-        if option_type.lower() == 'call':
-            simulated_payoffs = np.maximum(terminal_prices - self.K, 0)
+            covariance = np.cov(simulated_payoffs, terminal_prices)[0, 1]
+            variance = np.var(terminal_prices)
+            c = covariance / variance if variance > 0 else 0
+            
+            adjusted_payoffs = simulated_payoffs - c * (terminal_prices - expected_terminal_price)
+            price = discount_factor * np.mean(adjusted_payoffs)
+            se = np.std(adjusted_payoffs * discount_factor) / np.sqrt(self.num_paths)
         else:
-            simulated_payoffs = np.maximum(self.K - terminal_prices, 0)
-    
-        # Expected terminal price (S_t) accounting for dividend yield
-        expected_terminal_price = self.s0 * np.exp((self.r - self.q) * self.T)
+            # Standard Monte Carlo mean for Exotics (Asian/Barrier)
+            price = discount_factor * np.mean(simulated_payoffs)
+            se = np.std(simulated_payoffs * discount_factor) / np.sqrt(self.num_paths)
+            
+        return (price, se) if return_se else price
 
-        # Control Variate process        
-        covariance = np.cov(simulated_payoffs, terminal_prices)[0, 1]
-        variance = np.var(terminal_prices)
-        c = covariance / variance if variance > 0 else 0
+    def calculate_greeks(self, option: Option) -> dict:
+        """
+        Calculates Greeks using Finite Difference Method.
+        CRITICAL: We pass a fixed random seed so that simulation noise 
+        doesn't corrupt the tiny bumps used to calculate the derivatives.
+        """
+        FIXED_SEED = 42 
         
-        adjusted_payoffs = simulated_payoffs - c * (terminal_prices - expected_terminal_price)
-        
-        discounted_price = np.exp(-self.r * self.T) * np.mean(adjusted_payoffs)
-        standard_error = np.std(adjusted_payoffs * np.exp(-self.r * self.T)) / np.sqrt(self.num_paths)
-
-        return discounted_price, standard_error
-
-    def calculate_greeks(self, option_type: str = 'call'):
-        """Calculates Greeks using Finite Differences with a fixed random seed."""
-        fixed_seed = 42
-        
-        dS = self.s0 * 0.01
+        dS = self.market_data.spot_price * 0.01
         dVol = 0.01
         dT = 1 / 365
         dR = 0.0001
 
-        def get_price(s, v, t, r_rate):
-            model = MonteCarloSimulations(s0=s, K=self.K, r=r_rate, q=self.q, T=t, sigma=v, 
-                                          num_paths=self.num_paths, time_steps=self.time_steps)
-            price, _ = model.price_with_control_variate(option_type=option_type, seed=fixed_seed)
-            return price
+        # Helper to quickly re-price with bumped market data
+        def get_price(bumped_data: MarketData) -> float:
+            temp_engine = MonteCarloEngine(bumped_data, self.num_paths, self.time_steps)
+            return temp_engine.calculate_price(option, seed=FIXED_SEED)
 
-        base_price = get_price(self.s0, self.sigma, self.T, self.r)
+        base_price = self.calculate_price(option, seed=FIXED_SEED)
+        md = self.market_data
         
-        # Delta & Gamma
-        price_up = get_price(self.s0 + dS, self.sigma, self.T, self.r)
-        price_dn = get_price(self.s0 - dS, self.sigma, self.T, self.r)
-        delta = (price_up - price_dn) / (2 * dS)
-        gamma = (price_up - 2 * base_price + price_dn) / (dS ** 2)
+        # Spot bumps
+        md_up_s = copy.copy(md)
+        md_up_s.spot_price += dS
+        md_dn_s = copy.copy(md)
+        md_dn_s.spot_price -= dS
+        
+        # Vol bumps
+        md_up_vol = copy.copy(md)
+        md_up_vol.volatility += dVol
+        md_dn_vol = copy.copy(md)
+        md_dn_vol.volatility -= dVol
+        
+        # Time and Rate bumps
+        md_time_pass = copy.copy(md)
+        md_time_pass.time_to_expiry -= dT
+        md_up_r = copy.copy(md)
+        md_up_r.risk_free_rate += dR
+        md_dn_r = copy.copy(md)
+        md_dn_r.risk_free_rate -= dR
 
-        # Vega
-        price_vol_up = get_price(self.s0, self.sigma + dVol, self.T, self.r)
-        price_vol_dn = get_price(self.s0, self.sigma - dVol, self.T, self.r)
-        vega = ((price_vol_up - price_vol_dn) / (2 * dVol)) / 100
-
-        # Theta 
-        price_time_pass = get_price(self.s0, self.sigma, self.T - dT, self.r)
-        theta = ((price_time_pass - base_price) / dT) / 365.0
-
-        # Rho
-        price_r_up = get_price(self.s0, self.sigma, self.T, self.r + dR)
-        price_r_dn = get_price(self.s0, self.sigma, self.T, self.r - dR)
-        rho = ((price_r_up - price_r_dn) / (2 * dR)) / 100
+        # Derivative calculations
+        delta = (get_price(md_up_s) - get_price(md_dn_s)) / (2 * dS)
+        gamma = (get_price(md_up_s) - 2 * base_price + get_price(md_dn_s)) / (dS ** 2)
+        vega = (get_price(md_up_vol) - get_price(md_dn_vol)) / (2 * dVol)
+        theta = (get_price(md_time_pass) - base_price) / dT
+        rho = (get_price(md_up_r) - get_price(md_dn_r)) / (2 * dR)
 
         return {
             'delta': delta,
             'gamma': gamma,
-            'vega': vega,
-            'theta': theta,
-            'rho': rho
+            'vega': vega / 100,      
+            'theta': theta / 365,    
+            'rho': rho / 100         
         }
-
-#mc = MonteCarloSimulations(s0 = 100, K = 106, r=0.07, q=0.04 T=2.0, sigma=0.2, num_paths=50000, time_steps=252) # 252 trading days
-#price, se = mc.option_price(option_type='call')
-#print(f"Standard MC Price: {price:.4f} (Standard Error: {se:.4f})")
-
-#cv_price, cv_se = mc.price_with_control_variate(option_type='call')
-#print(f"Control variate MC Price: {cv_price:.4f} (Standard Error: {cv_se:.4f})")
