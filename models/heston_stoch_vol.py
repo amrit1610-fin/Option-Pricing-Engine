@@ -1,229 +1,232 @@
 import numpy as np
+import copy
 
-class HestonMonteCarloModel:
-    """
-    Monte Carlo simulation of the Heston Stochastic Volatility Model.
-    Uses the Full Truncation scheme (Lord et al., 2008) to handle negative variances.
-    """
-    def __init__(self, s0: float, v0: float, r: float, q: float, T: float, 
-                 sigma: float, rho: float, kappa: float, theta: float):
-        self.s0 = s0
-        self.v0 = v0
-        self.r = r
-        self.q = q  
-        self.T = T
-        self.sigma = sigma
-        self.rho = rho
-        self.kappa = kappa
-        self.theta = theta
-        
-        # Check Feller Condition
-        feller_val = 2 * self.kappa * self.theta
-        if feller_val <= self.sigma**2:
-            print(f"Warning: Feller condition violated ({feller_val:.4f} <= {self.sigma**2:.4f}). Variance may hit zero.")
+from models.base import PricingEngine
+from core.instruments import Option
+from core.market_data import MarketData
 
-    def option_price(self, K: float, option_type: str = 'call', steps: int = 100, paths: int = 10000):
-        dt = self.T / steps       
-
-        # 1. Generating standard normal RVs
-        Z1 = np.random.standard_normal(size=(paths, steps))
-        Z2 = np.random.standard_normal(size=(paths, steps))
-
-        # 2. Correlating the RVs (Cholesky Decomposition)
-        W1 = Z1
-        W2 = self.rho * Z1 + np.sqrt(1 - self.rho**2) * Z2
-
-        # 3. Monte-Carlo path simulation 
-        S = np.zeros((paths, steps + 1))
-        v = np.zeros((paths, steps + 1))
-
-        S[:, 0] = self.s0
-        v[:, 0] = self.v0
-
-        for t in range(steps):
-            # Full Truncation: Keep positive values for drift/diffusion terms
-            v_pos = np.maximum(v[:, t], 0)
-
-            # Stock SDE with dividend yield (q)
-            S[:, t+1] = S[:, t] * np.exp((self.r - self.q - 0.5 * v_pos) * dt + np.sqrt(v_pos * dt) * W1[:, t])
-
-            # Variance SDE (CIR process)
-            v[:, t+1] = v[:, t] + (self.kappa * (self.theta - v_pos) * dt) + (self.sigma * np.sqrt(v_pos * dt) * W2[:, t])
-
-        # 4. Payoff calculation
-        terminal_prices = S[:, -1]
-        if option_type.lower() == 'call':
-            payoffs = np.maximum(terminal_prices - K, 0)
-        elif option_type.lower() == 'put':
-            payoffs = np.maximum(K - terminal_prices, 0)
-        else:
-            raise ValueError("Option type must be 'call' or 'put'")
-
-        # 5. Discounting and Error Calculation
-        discounted_payoffs = np.exp(-self.r * self.T) * payoffs
-        price = np.mean(discounted_payoffs)
-        standard_error = np.std(discounted_payoffs) / np.sqrt(paths)
-        
-        return price, standard_error
-
-
-class HestonFourierModel:
+class HestonFourierEngine(PricingEngine):
     """
     Fourier transform pricing for Heston Model using the Carr-Madan (1999) FFT method.
-    Uses the "Little Trap" characteristic function formulation to avoid branch cut issues.
+    Fast and accurate, but restricted to European options.
     """
-    def __init__(self, s0: float, v0: float, r: float, q: float, T: float, 
-                 sigma: float, rho: float, kappa: float, theta: float):
-        self.s0 = s0
+    
+    SUPPORTED_STYLES = ['European']
+    SUPPORTED_EXOTICS = ['None']
+
+    def __init__(self, market_data: MarketData, v0: float, rho: float, kappa: float, theta: float, sigma_v: float):
+        super().__init__(market_data)
         self.v0 = v0
-        self.r = r
-        self.q = q
-        self.T = T
-        self.sigma = sigma
         self.rho = rho
         self.kappa = kappa
         self.theta = theta
+        self.sigma_v = sigma_v
         
-        self.x0 = np.log(self.s0)
+        self.x0 = np.log(self.market_data.spot_price)
         self.i = 1j
 
     def _cf(self, u):
         """Heston Characteristic Function (Albrecher formulation)"""
+        r = self.market_data.risk_free_rate
+        q = self.market_data.dividend_yield
+        T = self.market_data.time_to_expiry
+        
         a = self.kappa * self.theta
-        b = self.kappa - (self.rho * self.sigma * self.i * u)
-        d = np.sqrt(b**2 + self.sigma**2 * (self.i * u + u**2))
+        b = self.kappa - (self.rho * self.sigma_v * self.i * u)
+        d = np.sqrt(b**2 + self.sigma_v**2 * (self.i * u + u**2))
         g = (b - d) / (b + d)
 
-        eDT = np.exp(-d * self.T)
+        eDT = np.exp(-d * T)
         one_minus_g_eDT = 1 - g * eDT
         one_minus_g     = 1 - g
         
-        # Small guards to prevent division by zero
         one_minus_g_eDT = np.where(np.abs(one_minus_g_eDT) < 1e-15, 1e-15, one_minus_g_eDT)
         one_minus_g     = np.where(np.abs(one_minus_g)     < 1e-15, 1e-15, one_minus_g)
 
-        C = self.i * u * (self.r - self.q) * self.T + (a / (self.sigma**2)) * ((b - d) * self.T - 2.0 * np.log(one_minus_g_eDT / one_minus_g))
-        D = ((b - d) / (self.sigma**2)) * ((1 - eDT) / one_minus_g_eDT)
+        C = self.i * u * (r - q) * T + (a / (self.sigma_v**2)) * ((b - d) * T - 2.0 * np.log(one_minus_g_eDT / one_minus_g))
+        D = ((b - d) / (self.sigma_v**2)) * ((1 - eDT) / one_minus_g_eDT)
         
         return np.exp(C + D * self.v0 + self.i * u * self.x0)
 
-    def _simpson_weights(self, N: int):
-        """Simpson weights on an N-point uniform grid."""
+    def fft_calls(self, N: int = 4096, eta: float = 0.25, alpha: float = 1.5):
+        """Computes call prices over a grid of strikes using FFT."""
+        r = self.market_data.risk_free_rate
+        T = self.market_data.time_to_expiry
+        
+        n = np.arange(N)
+        v = eta * n
+        u = v - (alpha + 1) * self.i
+        ert = np.exp(-r * T)
+        
+        psi = (ert * self._cf(u)) / (alpha**2 + alpha - v**2 + self.i * (2 * alpha + 1) * v)
+        
         w = np.ones(N)
         w[1:N-1:2] = 4
         w[2:N-2:2] = 2
-        return w
+        w = w * (eta / 3.0)
 
-    def fft_calls(self, N: int = 4096, eta: float = 0.25, alpha: float = 1.5):
-        """Computes call prices over a grid of strikes using FFT."""
-        n = np.arange(N)
-        v = eta * n
-
-        u = v - (alpha + 1) * self.i
-        ert = np.exp(-self.r * self.T)
-        
-        # Carr-Madan damped characteristic function
-        psi = (ert * self._cf(u)) / (alpha**2 + alpha - v**2 + self.i * (2 * alpha + 1) * v)
-
-        w = self._simpson_weights(N) * (eta / 3.0)
-
-        # FFT coupling
-        lam = 2.0 * np.pi / (N * eta)   # Log-strike step
-        b   = 0.5 * N * lam             # Half-width in k
+        lam = 2.0 * np.pi / (N * eta)   
+        b   = 0.5 * N * lam             
         x   = psi * np.exp(self.i * b * v) * w
 
         F = np.fft.fft(x)
         F = np.real(F) 
 
         j = np.arange(N)
-        k = -b + j * lam                # k = ln(K)
+        k = -b + j * lam                
         K = np.exp(k)
 
         calls = np.exp(-alpha * k) / np.pi * F
         order = np.argsort(K)
         return K[order], np.maximum(calls[order], 0.0)
 
-    def option_price(self, K: float, option_type: str = 'call', N: int = 4096, eta: float = 0.25, alpha: float = 1.5):
-        """Prices a specific option by interpolating the FFT grid."""
+    def calculate_price(self, option: Option) -> float:
+        N, eta, alpha = 4096, 0.25, 1.5
         K_grid, C_grid = self.fft_calls(N=N, eta=eta, alpha=alpha)
         
-        # Linear interpolation for Call
-        if K <= K_grid[0]:
+        # Linear interpolation
+        if option.strike <= K_grid[0]:
             call_price = C_grid[0]
-        elif K >= K_grid[-1]:
+        elif option.strike >= K_grid[-1]:
             call_price = C_grid[-1]
         else:
-            idx = np.searchsorted(K_grid, K)
+            idx = np.searchsorted(K_grid, option.strike)
             x0, x1 = K_grid[idx-1], K_grid[idx]
             y0, y1 = C_grid[idx-1], C_grid[idx]
-            call_price = y0 + (y1 - y0) * (K - x0) / (x1 - x0)
+            call_price = y0 + (y1 - y0) * (option.strike - x0) / (x1 - x0)
             
-        if option_type.lower() == 'call':
+        if option.option_type == 'call':
             return call_price
-        elif option_type.lower() == 'put':
-            # Put-Call Parity
-            return call_price - self.s0 * np.exp(-self.q * self.T) + K * np.exp(-self.r * self.T)
         else:
-            raise ValueError("Option type must be 'call' or 'put'")
+            # Put-Call Parity
+            S = self.market_data.spot_price
+            q = self.market_data.dividend_yield
+            r = self.market_data.risk_free_rate
+            T = self.market_data.time_to_expiry
+            return call_price - S * np.exp(-q * T) + option.strike * np.exp(-r * T)
 
-
-    def calculate_greeks(self, K: float, option_type: str = 'call'):
-        """Calculates Greeks using Finite Differences on the fast Fourier Engine."""
-        dS = self.s0 * 0.01
-        dVol = 0.01          # Bump to initial variance v0
+    def calculate_greeks(self, option: Option) -> dict:
+        """Finite Differences for Greeks using the fast Fourier Engine."""
+        dS = self.market_data.spot_price * 0.01
+        dVol = 0.01          # Bump initial variance
         dT = 1 / 365
         dR = 0.0001
 
-        def get_price(s, v, t, r_rate):
-            model = HestonFourierModel(s0=s, v0=v, r=r_rate, q=self.q, T=t, sigma=self.sigma, 
-                                       rho=self.rho, kappa=self.kappa, theta=self.theta)
-            return model.option_price(K, option_type)
+        base_price = self.calculate_price(option)
 
-        base_price = get_price(self.s0, self.v0, self.T, self.r)
+        def get_price(bumped_md: MarketData, v0_bump: float = 0.0):
+            temp_engine = HestonFourierEngine(bumped_md, self.v0 + v0_bump, self.rho, self.kappa, self.theta, self.sigma_v)
+            return temp_engine.calculate_price(option)
+
+        md = self.market_data
         
-        # Delta & Gamma
-        price_up = get_price(self.s0 + dS, self.v0, self.T, self.r)
-        price_dn = get_price(self.s0 - dS, self.v0, self.T, self.r)
-        delta = (price_up - price_dn) / (2 * dS)
-        gamma = (price_up - 2 * base_price + price_dn) / (dS ** 2)
+        md_up_s = copy.copy(md); md_up_s.spot_price += dS
+        md_dn_s = copy.copy(md); md_dn_s.spot_price -= dS
+        
+        md_time_pass = copy.copy(md); md_time_pass.time_to_expiry -= dT
+        
+        md_up_r = copy.copy(md); md_up_r.risk_free_rate += dR
+        md_dn_r = copy.copy(md); md_dn_r.risk_free_rate -= dR
 
-        # Vega (w.r.t initial variance v0)
-        price_vol_up = get_price(self.s0, self.v0 + dVol, self.T, self.r)
-        price_vol_dn = get_price(self.s0, self.v0 - dVol, self.T, self.r)
-        vega = ((price_vol_up - price_vol_dn) / (2 * dVol)) / 100
+        delta = (get_price(md_up_s) - get_price(md_dn_s)) / (2 * dS)
+        gamma = (get_price(md_up_s) - 2 * base_price + get_price(md_dn_s)) / (dS ** 2)
+        vega = (get_price(md, dVol) - get_price(md, -dVol)) / (2 * dVol)
+        theta = (get_price(md_time_pass) - base_price) / dT
+        rho = (get_price(md_up_r) - get_price(md_dn_r)) / (2 * dR)
 
-        # Theta 
-        price_time_pass = get_price(self.s0, self.v0, self.T - dT, self.r)
-        theta = ((price_time_pass - base_price) / dT) / 365.0
-
-        # Rho
-        price_r_up = get_price(self.s0, self.v0, self.T, self.r + dR)
-        price_r_dn = get_price(self.s0, self.v0, self.T, self.r - dR)
-        rho = ((price_r_up - price_r_dn) / (2 * dR)) / 100
-
-        return {
-            'delta': delta,
-            'gamma': gamma,
-            'vega': vega,
-            'theta': theta,
-            'rho': rho
-        }
+        return {'delta': delta, 'gamma': gamma, 'vega': vega / 100, 'theta': theta / 365, 'rho': rho / 100}
 
 
-#s0, v0, r, q, T = 100, 0.04, 0.07, 0.0, 1.0
-#sigma, rho, kappa, theta = 0.3, -0.7, 2.0, 0.04
-#K = 90
+class HestonMonteCarloEngine(PricingEngine):
+    """
+    Monte Carlo simulation of the Heston Model using the Full Truncation scheme.
+    Because it simulates paths, it naturally supports Path-Dependent Exotics.
+    """
     
-#print("========== Heston Fourier (Analytical) ==========")
-#ft_model = HestonFourierModel(s0, v0, r, q, T, sigma, rho, kappa, theta)
-#ft_call = ft_model.option_price(K, 'call')
-#ft_put = ft_model.option_price(K, 'put')
-#print(f"Call: {ft_call:.4f} | Put: {ft_put:.4f}")
-#print("-" * 50)
-    
-#print("========== Heston Monte Carlo (Simulated) ==========")
-#mc_model = HestonMonteCarloModel(s0, v0, r, q, T, sigma, rho, kappa, theta)
-#mc_call, mc_call_se = mc_model.option_price(K, 'call', steps=100, paths=20000)
-#mc_put, mc_put_se = mc_model.option_price(K, 'put', steps=100, paths=20000)
-#print(f"Call: {mc_call:.4f} (SE: {mc_call_se:.4f})")
-#print(f"Put:  {mc_put:.4f} (SE: {mc_put_se:.4f})")
+    SUPPORTED_STYLES = ['European']
+    SUPPORTED_EXOTICS = ['None', 'Asian', 'Barrier']
+
+    def __init__(self, market_data: MarketData, v0: float, rho: float, kappa: float, theta: float, sigma_v: float, steps: int = 100, paths: int = 10000):
+        super().__init__(market_data)
+        self.v0 = v0
+        self.rho = rho
+        self.kappa = kappa
+        self.theta = theta
+        self.sigma_v = sigma_v
+        self.steps = steps
+        self.paths = paths
+
+    def _generate_paths(self, seed: int = None) -> np.ndarray:
+        if seed is not None:
+            np.random.seed(seed)
+            
+        S0 = self.market_data.spot_price
+        r = self.market_data.risk_free_rate
+        q = self.market_data.dividend_yield
+        T = self.market_data.time_to_expiry
+        
+        dt = T / self.steps       
+
+        Z1 = np.random.standard_normal(size=(self.paths, self.steps))
+        Z2 = np.random.standard_normal(size=(self.paths, self.steps))
+
+        W1 = Z1
+        W2 = self.rho * Z1 + np.sqrt(1 - self.rho**2) * Z2
+
+        S = np.zeros((self.paths, self.steps + 1))
+        v = np.zeros((self.paths, self.steps + 1))
+
+        S[:, 0] = S0
+        v[:, 0] = self.v0
+
+        for t in range(self.steps):
+            v_pos = np.maximum(v[:, t], 0)
+            S[:, t+1] = S[:, t] * np.exp((r - q - 0.5 * v_pos) * dt + np.sqrt(v_pos * dt) * W1[:, t])
+            v[:, t+1] = v[:, t] + (self.kappa * (self.theta - v_pos) * dt) + (self.sigma_v * np.sqrt(v_pos * dt) * W2[:, t])
+
+        return S
+
+    def calculate_price(self, option: Option, seed: int = None, return_se: bool = False):
+        paths = self._generate_paths(seed)
+        
+        # Object-Oriented magic: The Option handles its own payoff (Asian, Barrier, etc.)
+        simulated_payoffs = option.get_payoff(paths)
+        
+        r = self.market_data.risk_free_rate
+        T = self.market_data.time_to_expiry
+        discount_factor = np.exp(-r * T)
+        
+        discounted_payoffs = discount_factor * simulated_payoffs
+        price = np.mean(discounted_payoffs)
+        se = np.std(discounted_payoffs) / np.sqrt(self.paths)
+        
+        return (price, se) if return_se else price
+
+    def calculate_greeks(self, option: Option) -> dict:
+        """Finite difference Greeks using fixed seeds to eliminate Monte Carlo noise."""
+        FIXED_SEED = 42 
+        dS = self.market_data.spot_price * 0.01
+        dVol = 0.01
+        dT = 1 / 365
+        dR = 0.0001
+
+        base_price = self.calculate_price(option, seed=FIXED_SEED)
+
+        def get_price(bumped_md: MarketData, v0_bump: float = 0.0):
+            temp_engine = HestonMonteCarloEngine(bumped_md, self.v0 + v0_bump, self.rho, self.kappa, self.theta, self.sigma_v, self.steps, self.paths)
+            return temp_engine.calculate_price(option, seed=FIXED_SEED)
+
+        md = self.market_data
+        md_up_s = copy.copy(md); md_up_s.spot_price += dS
+        md_dn_s = copy.copy(md); md_dn_s.spot_price -= dS
+        md_time_pass = copy.copy(md); md_time_pass.time_to_expiry -= dT
+        md_up_r = copy.copy(md); md_up_r.risk_free_rate += dR
+        md_dn_r = copy.copy(md); md_dn_r.risk_free_rate -= dR
+
+        delta = (get_price(md_up_s) - get_price(md_dn_s)) / (2 * dS)
+        gamma = (get_price(md_up_s) - 2 * base_price + get_price(md_dn_s)) / (dS ** 2)
+        vega = (get_price(md, dVol) - get_price(md, -dVol)) / (2 * dVol)
+        theta = (get_price(md_time_pass) - base_price) / dT
+        rho = (get_price(md_up_r) - get_price(md_dn_r)) / (2 * dR)
+
+        return {'delta': delta, 'gamma': gamma, 'vega': vega / 100, 'theta': theta / 365, 'rho': rho / 100}
