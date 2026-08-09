@@ -1,20 +1,20 @@
 <div align="center">
 
-# 📈 European Option Pricing Engine
+# 📈 Multi Option Pricing Engine
 
-A comprehensive, modular derivatives (*european options*) pricing library and interactive dashboard built in Python. This project compares traditional constant-volatility models against advanced stochastic volatility models and numerical approximation methods.
+A comprehensive, modular derivatives (*european, american and exotic options*) pricing library and interactive dashboard built in Python. This project compares traditional constant-volatility models against advanced stochastic volatility models and numerical approximation methods.
 
 </div>
 
 ### 🚀 Live Interactive Dashboard
 
-Experience the engine directly in your browser: [Launch Streamlit Dashboard](https://european-option-pricing-engine.streamlit.app/)
+Experience the engine directly in your browser: [Launch Streamlit Dashboard](https://multi-option-pricing-engine.streamlit.app/)
 
-The web application allows you to dynamically adjust market parameters (Spot, Strike, Time, Risk-Free Rate) and Heston dynamics (Vol-of-Vol, Correlation, Mean Reversion) to instantly visualize pricing convergence, Greeks, and volatility skew.
+The web application allows you to dynamically adjust option style (European / American / Exotic), market parameters (Spot, Strike, Time, Risk-Free Rate) and Heston dynamics (Vol-of-Vol, Correlation, Mean Reversion) to instantly visualize pricing convergence, Greeks, and volatility skew.
 
 ### 🧠 Mathematical Models Implemented
 
-This engine implements four distinct quantitative pricing models to calculate European Call and Put premiums, as well as their respective Greeks ($\Delta, \Gamma, \nu, \Theta, \rho$).
+This engine implements four distinct quantitative pricing models to calculate various Call and Put premiums, as well as their respective Greeks ($\Delta, \Gamma, \nu, \Theta, \rho$).
 
 **Black-Scholes-Merton (Analytical)**
 
@@ -47,8 +47,10 @@ Option-Pricing-Engine/
 │
 ├── core/                   
 │   └── market_data.py      # Dataclasses standardizing Market & Instrument inputs
+│   └── instruments.py      # Abstract class for option and model compatibility
 │
 ├── models/                 # Core Pricing Engines
+│   ├──base.py
 │   ├── black_scholes.py    
 │   ├── binomial_tree.py    
 │   ├── monte_carlo.py      
