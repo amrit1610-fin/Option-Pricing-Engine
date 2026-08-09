@@ -10,7 +10,7 @@ from core.instruments import EuropeanOption, AmericanOption, AsianOption, Barrie
 from models.black_scholes import BlackScholesEngine
 from models.binomial_tree import BinomialTreeEngine
 from models.monte_carlo import MonteCarloEngine
-from models.heston import HestonFourierEngine, HestonMonteCarloEngine
+from models.heston_stoch_vol import HestonFourierEngine, HestonMonteCarloEngine
 
 st.set_page_config(
     page_title="Quant Option Pricing Engine",
