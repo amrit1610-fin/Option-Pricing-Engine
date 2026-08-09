@@ -224,14 +224,18 @@ def main():
                 
                 for s in S_range:
                     md_temp = MarketData(spot_price=s, risk_free_rate=rate, time_to_expiry=ttm, dividend_yield=div_yield, volatility=vol, strike_price=strike)
-                    temp_engine = engine_for_plot.__class__(md_temp, **engine_for_plot.__dict__) if not isinstance(engine_for_plot, BlackScholesEngine) else engine_for_plot.__class__(md_temp)
                     
-                    # Hack to copy over Heston / Tree kwargs safely
-                    if hasattr(engine_for_plot, 'v0'):
-                        temp_engine.v0, temp_engine.rho, temp_engine.kappa, temp_engine.theta, temp_engine.sigma_v = v0, rho, kappa, theta, sigma_v
-                    if hasattr(engine_for_plot, 'N'): temp_engine.N = tree_steps
-                    if hasattr(engine_for_plot, 'paths'): temp_engine.paths, temp_engine.steps = mc_paths, max(int(ttm * 252), 50)
-                    if hasattr(engine_for_plot, 'num_paths'): temp_engine.num_paths, temp_engine.time_steps = mc_paths, max(int(ttm * 252), 50)
+                    # Cleanly instantiate based on the model type without double-passing market_data
+                    if isinstance(engine_for_plot, BlackScholesEngine):
+                        temp_engine = BlackScholesEngine(md_temp)
+                    elif isinstance(engine_for_plot, BinomialTreeEngine):
+                        temp_engine = BinomialTreeEngine(md_temp, N=tree_steps)
+                    elif isinstance(engine_for_plot, MonteCarloEngine):
+                        temp_engine = MonteCarloEngine(md_temp, num_paths=mc_paths, time_steps=max(int(ttm * 252), 50))
+                    elif isinstance(engine_for_plot, HestonFourierEngine):
+                        temp_engine = HestonFourierEngine(md_temp, v0=v0, rho=rho, kappa=kappa, theta=theta, sigma_v=sigma_v)
+                    elif isinstance(engine_for_plot, HestonMonteCarloEngine):
+                        temp_engine = HestonMonteCarloEngine(md_temp, v0=v0, rho=rho, kappa=kappa, theta=theta, sigma_v=sigma_v, steps=max(int(ttm * 252), 50), paths=mc_paths)
                     
                     try:
                         p = temp_engine.calculate_price(option)
