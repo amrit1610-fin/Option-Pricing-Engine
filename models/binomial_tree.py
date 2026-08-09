@@ -1,147 +1,155 @@
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
+import copy
 
-class BinomialOptionPricing:
+from models.base import PricingEngine
+from core.instruments import Option
+from core.market_data import MarketData
 
-    def __init__(self, 
-                 s0:float = None, K:float = None, 
-                 r:float = None, T:float = None, 
-                 sigma:float = None, N:int = None,
-                 q:float = 0.0
-        ):
-        self.s0 = s0
-        self.K = K
-        self.r = r
-        self.q = q
-        self.T = T
-        self.sigma = sigma
+class BinomialTreeEngine(PricingEngine):
+    """
+    Cox-Ross-Rubinstein Binomial Tree Model.
+    Mathematically capable of pricing both European and American options.
+    """
+    
+    # Engine Capabilities (UI Dynamic Metadata)
+    SUPPORTED_STYLES = ['European', 'American']
+    SUPPORTED_EXOTICS = ['None']
+
+    def __init__(self, market_data: MarketData, N: int = 500):
+        super().__init__(market_data)
         self.N = N
 
-        # derived formulas to be needed later
-        self.dt = self.T / self.N
-        self.u = np.exp(self.sigma * np.sqrt(self.dt))
-        self.d = 1 / self.u
-        self.p = (np.exp((self.r - self.q) * self.dt) - self.d) / (self.u - self.d)
-        self.discount = np.exp(-self.r * self.dt)
+    def _build_trees(self, option: Option):
+        """Core logic to build stock and option price trees."""
+        S = self.market_data.spot_price
+        r = self.market_data.risk_free_rate
+        q = self.market_data.dividend_yield
+        T = self.market_data.time_to_expiry
+        sigma = self.market_data.volatility
 
-    def option_prices(self, option_type='call'):
+        # Tree factors
+        dt = T / self.N
+        u = np.exp(sigma * np.sqrt(dt))
+        d = 1 / u
+        p = (np.exp((r - q) * dt) - d) / (u - d)
+        discount = np.exp(-r * dt)
 
-        # 1. Initialize trees with zeros
-        stock_tree = np.zeros((self.N+1 , self.N+1))
-        option_tree = np.zeros((self.N+1 , self.N+1))
+        # Initialize empty tree grids
+        stock_tree = np.zeros((self.N + 1, self.N + 1))
+        option_tree = np.zeros((self.N + 1, self.N + 1))
 
-        # 2. Building stock price tree (Forward pass)
-        for i in range(self.N+1):
-            for j in range(i+1):
-                stock_tree[j, i] = self.s0 * (self.u ** (i - j)) * (self.d ** j)
+        for i in range(self.N + 1):
+            for j in range(i + 1):
+                stock_tree[j, i] = S * (u ** (i - j)) * (d ** j)
 
-        # 3. Calculating terminal values at expiry
-        for j in range(self.N + 1):
-            if option_type.lower() == 'call':
-                option_tree[j, self.N] = max(0, stock_tree[j, self.N] - self.K)
-            elif option_type.lower() == 'put':
-                option_tree[j, self.N] = max(0, self.K - stock_tree[j, self.N])
+        # We pass the entire terminal column to the Option object's payoff function
+        terminal_prices = stock_tree[:, self.N]
+        option_tree[:, self.N] = option.get_payoff(terminal_prices)
 
-        # 4. Building option tree by calculating Option prices (Backward Induction)
+        # Check if option is American for early exercise logic
+        is_american = option.style == 'American'
+
         for i in range(self.N - 1, -1, -1):
             for j in range(i + 1):
-                expected_value = self.p * option_tree[j, i+1] + (1 - self.p) * option_tree[j+1, i+1]
-                option_tree[j, i] = self.discount * expected_value
+                # 1. Calculate the expected discounted value of holding the option
+                expected_value = discount * (p * option_tree[j, i + 1] + (1 - p) * option_tree[j + 1, i + 1])
+                
+                if is_american:
+                    # 2. Calculate the immediate intrinsic value if exercised right now
+                    current_spot = stock_tree[j, i]
+                    # The get_payoff expects arrays, so we wrap the scalar in an array
+                    intrinsic_value = option.get_payoff(np.array([current_spot]))[0]
+                    
+                    # 3. The true option value is the maximum of holding vs exercising early
+                    option_tree[j, i] = max(expected_value, intrinsic_value)
+                else:
+                    # European options cannot be exercised early
+                    option_tree[j, i] = expected_value
 
         return stock_tree, option_tree
 
-    def calculate_greeks(self, option_type='call'):
-        """
-        Calculates Greeks using Finite Difference Method (Bump and Revalue)
-        """
-        dS = self.s0 * 0.01  # 1% bump in spot
-        dVol = 0.01          # 1% bump in vol
-        dT = 1 / 365         # 1 day bump in time
-        dR = 0.0001          # 1 basis point bump in rate
+    def calculate_price(self, option: Option) -> float:
+        """Required by PricingEngine base class. Executes the pricing."""
+        _, option_tree = self._build_trees(option)
+        return option_tree[0, 0]
 
-        def get_price(s, v, t, r_rate):
-            model = BinomialOptionPricing(s0=s, K=self.K, r=r_rate, q=self.q, T=t, sigma=v, N=self.N)
-            _, opt_tree = model.option_prices(option_type)
-            return opt_tree[0, 0]
+    def calculate_greeks(self, option: Option) -> dict:
+        """Calculates Greeks using Finite Difference Method (Bump and Revalue)"""
+        dS = self.market_data.spot_price * 0.01  # 1% bump in spot
+        dVol = 0.01                              # 1% bump in vol
+        dT = 1 / 365                             # 1 day bump in time
+        dR = 0.0001                              # 1 basis point bump in rate
 
-        base_price = get_price(self.s0, self.sigma, self.T, self.r)
+        # Helper to quickly re-price with bumped market data
+        def get_price(bumped_data: MarketData) -> float:
+            temp_engine = BinomialTreeEngine(bumped_data, self.N)
+            return temp_engine.calculate_price(option)
+
+        base_price = self.calculate_price(option)
+        md = self.market_data
         
-        # Delta & Gamma
-        price_up = get_price(self.s0 + dS, self.sigma, self.T, self.r)
-        price_dn = get_price(self.s0 - dS, self.sigma, self.T, self.r)
-        delta = (price_up - price_dn) / (2 * dS)
-        gamma = (price_up - 2 * base_price + price_dn) / (dS ** 2)
+        # Spot bumps
+        md_up_s = copy.copy(md)
+        md_up_s.spot_price += dS
+        md_dn_s = copy.copy(md)
+        md_dn_s.spot_price -= dS
+        
+        # Vol bumps
+        md_up_vol = copy.copy(md)
+        md_up_vol.volatility += dVol
+        md_dn_vol = copy.copy(md)
+        md_dn_vol.volatility -= dVol
+        
+        # Time and Rate bumps
+        md_time_pass = copy.copy(md)
+        md_time_pass.time_to_expiry -= dT
+        md_up_r = copy.copy(md)
+        md_up_r.risk_free_rate += dR
+        md_dn_r = copy.copy(md)
+        md_dn_r.risk_free_rate -= dR
 
-        # Vega
-        price_vol_up = get_price(self.s0, self.sigma + dVol, self.T, self.r)
-        price_vol_dn = get_price(self.s0, self.sigma - dVol, self.T, self.r)
-        vega = ((price_vol_up - price_vol_dn) / (2 * dVol)) / 100
-
-        # Theta (Note: we decrease time to maturity to simulate time passing)
-        price_time_pass = get_price(self.s0, self.sigma, self.T - dT, self.r)
-        theta = ((price_time_pass - base_price) / dT) / 365.0
-
-        # Rho
-        price_r_up = get_price(self.s0, self.sigma, self.T, self.r + dR)
-        price_r_dn = get_price(self.s0, self.sigma, self.T, self.r - dR)
-        rho = ((price_r_up - price_r_dn) / (2 * dR)) / 100
+        # Derivative calculations
+        delta = (get_price(md_up_s) - get_price(md_dn_s)) / (2 * dS)
+        gamma = (get_price(md_up_s) - 2 * base_price + get_price(md_dn_s)) / (dS ** 2)
+        vega = (get_price(md_up_vol) - get_price(md_dn_vol)) / (2 * dVol)
+        theta = (get_price(md_time_pass) - base_price) / dT
+        rho = (get_price(md_up_r) - get_price(md_dn_r)) / (2 * dR)
 
         return {
             'delta': delta,
             'gamma': gamma,
-            'vega': vega,
-            'theta': theta,
-            'rho': rho
+            'vega': vega / 100,      # Scaled for a 1% change
+            'theta': theta / 365,    # Scaled for 1-day time decay
+            'rho': rho / 100         # Scaled for a 1% change
         }
 
-
-    def plot_binomial_tree(self,stock_tree, option_tree):
-        """
-        Visualizes the calculated trees using NetworkX and Matplotlib.
-        """
+    def plot_binomial_tree(self, option: Option):
+        """Visualizes the calculated trees using NetworkX and Matplotlib."""
+        stock_tree, option_tree = self._build_trees(option)
+        
         G = nx.DiGraph()
         pos = {}
         labels = {}
 
-        # Map the nodes, positions, and labels
         for i in range(self.N + 1):
             for j in range(i + 1):
                 node_id = f"{i}_{j}"
                 G.add_node(node_id)
-                
-                # X-axis is time step, Y-axis spreads out nodes based on up/down moves
                 pos[node_id] = (i, i - 2 * j)
-                
-                # Label contains both the Stock Price (S) and Option Value (V)
                 labels[node_id] = f"S: {stock_tree[j, i]:.2f}\nV: {option_tree[j, i]:.2f}"
 
-                # Add directional edges connecting to the next time step
                 if i < self.N:
-                    G.add_edge(node_id, f"{i+1}_{j}")     # Up move path
-                    G.add_edge(node_id, f"{i+1}_{j+1}")   # Down move path
+                    G.add_edge(node_id, f"{i+1}_{j}")     
+                    G.add_edge(node_id, f"{i+1}_{j+1}")   
 
-        # Render the plot
         plt.figure(figsize=(12, 7))
         nx.draw(G, pos, labels=labels, with_labels=True, 
                 node_size=2000, node_color="lightsteelblue",
                 font_size=9, font_weight="bold", arrows=True,
                 edge_color="gray")
         
-        plt.title(f"{self.N}-Step Binomial Tree\nS = Stock Price, V = Option Value", fontsize=14)
+        plt.title(f"{self.N}-Step Binomial Tree ({option.style} {option.option_type.capitalize()})\nS = Stock Price, V = Option Value", fontsize=14)
         plt.margins(0.1)
         plt.show()
-
-#r = 0.05      # risk-free rate
-#T = 1         # Time to expiry
-#N = 10        # time steps
-#sigma = 0.3   # constant volatility
-#s0 = 50       # initial stock price
-#K = 52        # Strike price
-#option_type = "Call"
-
-#engine = BinomialOptionPricing(s0=s0, K=K, r=r, T=T, sigma=sigma, N=N)
-#stock_tree, option_tree = engine.option_prices(option_type = option_type)
-#print(f"Calculated European {option_type.capitalize()} Price: ${option_tree[0, 0]:.4f}")
-
-#engine.plot_binomial_tree(stock_tree, option_tree)
